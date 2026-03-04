@@ -1,4 +1,4 @@
-// This is your Prisma schema file,
+// Prisma schema for PTW (Price to Win) application
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
@@ -6,6 +6,143 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider = "postgresql"
+}
+
+// ─── Contract ────────────────────────────────────────────────────────────────
+// A government solicitation / contract opportunity being analyzed for PTW
+model Contract {
+  id               Int          @id @default(autoincrement())
+  contractNumber   String       @unique
+  title            String
+  agency           String
+  description      String?
+  naicsCode        String?
+  setAside         String?      // e.g. "Full and Open", "SDVOSB", "8(a)"
+  popStart         DateTime?    // Period of Performance start
+  popEnd           DateTime?    // Period of Performance end
+  status           String       @default("OPEN") // OPEN | AWARDED | CANCELLED
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  clins            Clin[]
+  scenarios        Scenario[]
+  competitors      Competitor[]
+}
+
+// ─── Clin ─────────────────────────────────────────────────────────────────────
+// Contract Line Item Number — a discrete deliverable/task on the contract
+model Clin {
+  id          Int         @id @default(autoincrement())
+  contractId  Int
+  clinNumber  String      // e.g. "0001", "0002", "1001"
+  description String
+  clinType    String      // FFP | T&M | CPFF | CPAF
+  quantity    Float
+  unit        String      // e.g. "LOT", "HOUR", "MONTH"
+  isOption    Boolean     @default(false)
+  optionYear  Int?        // 0 = base, 1 = OY1, 2 = OY2, etc.
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  contract    Contract    @relation(fields: [contractId], references: [id])
+  tepResults  TepResult[]
+
+  @@unique([contractId, clinNumber])
+}
+
+// ─── Scenario ─────────────────────────────────────────────────────────────────
+// A named PTW pricing scenario (e.g. "Base Case", "Conservative", "Optimistic")
+model Scenario {
+  id              Int              @id @default(autoincrement())
+  contractId      Int
+  name            String
+  description     String?
+  isBaseline      Boolean          @default(false)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  contract        Contract         @relation(fields: [contractId], references: [id])
+  rateAssumptions RateAssumption[]
+  tepResults      TepResult[]
+}
+
+// ─── Competitor ───────────────────────────────────────────────────────────────
+// A company known or suspected to be bidding on the contract
+model Competitor {
+  id                Int         @id @default(autoincrement())
+  contractId        Int
+  name              String
+  dunsNumber        String?
+  gsaScheduleNumber String?
+  historicalWinRate Float?      // 0.0 – 1.0 (percentage expressed as decimal)
+  estimatedRevenue  Float?      // Annual revenue in millions USD
+  strengths         String?
+  weaknesses        String?
+  likelyBidPrice    Float?      // Analyst's estimated total bid price
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  contract          Contract    @relation(fields: [contractId], references: [id])
+  tepResults        TepResult[]
+}
+
+// ─── RateAssumption ───────────────────────────────────────────────────────────
+// Fully-burdened labor rate build-up for a specific labor category in a scenario
+model RateAssumption {
+  id                Int              @id @default(autoincrement())
+  scenarioId        Int
+  laborCategory     String           // e.g. "Program Manager", "Software Engineer"
+  level             String?          // e.g. "Senior", "Mid", "Junior"
+  baseRate          Float            // $/hour
+  escalationRate    Float            @default(0.03)  // annual % (decimal)
+  fringeRate        Float            // fringe benefit rate (decimal)
+  overheadRate      Float            // overhead rate (decimal)
+  gaRate            Float            // G&A rate (decimal)
+  feeRate           Float            // profit / fee rate (decimal)
+  wrappedRate       Float            // fully burdened $/hour
+  geographicIndexId Int?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  scenario          Scenario         @relation(fields: [scenarioId], references: [id])
+  geographicIndex   GeographicIndex? @relation(fields: [geographicIndexId], references: [id])
+}
+
+// ─── TepResult ────────────────────────────────────────────────────────────────
+// Total Evaluated Price result for a competitor on a specific CLIN within a scenario
+model TepResult {
+  id             Int         @id @default(autoincrement())
+  scenarioId     Int
+  clinId         Int
+  competitorId   Int?        // null = own company / incumbent estimate
+  totalPrice     Float       // proposed / estimated price for this CLIN
+  evaluatedPrice Float?      // government-adjusted evaluated price
+  technicalScore Float?      // technical evaluation score (0–100)
+  notes          String?
+  breakdown      Json?       // detailed cost breakdown as JSON
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  scenario       Scenario    @relation(fields: [scenarioId], references: [id])
+  clin           Clin        @relation(fields: [clinId], references: [id])
+  competitor     Competitor? @relation(fields: [competitorId], references: [id])
+}
+
+// ─── GeographicIndex ──────────────────────────────────────────────────────────
+// Geographic cost-of-labor index used to adjust base rates by location
+model GeographicIndex {
+  id              Int              @id @default(autoincrement())
+  location        String           // City or region name
+  state           String           // Two-letter state abbreviation
+  msa             String?          // Metropolitan Statistical Area name
+  index           Float            // Multiplier (1.0 = national average)
+  source          String?          // Data source, e.g. "BLS", "ERI"
+  effectiveYear   Int
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  rateAssumptions RateAssumption[]
+
+  @@unique([location, effectiveYear])
 }
