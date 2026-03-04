@@ -237,6 +237,14 @@ async function main() {
     },
   ];
 
+  // ── Clean slate for re-seedable data ─────────────────────────────────────
+  // scenarios, rateAssumptions and tepResults use create() not upsert,
+  // so wipe them before recreating to keep re-runs idempotent.
+  await prisma.tepResult.deleteMany({});
+  await prisma.rateAssumption.deleteMany({});
+  await prisma.scenario.deleteMany({ where: { contractId: contract.id } });
+  console.log("  ✓ Cleared prior scenarios, rate assumptions, and TEP results");
+
   const scenarios = [];
   for (const sc of scenarioData) {
     const record = await prisma.scenario.create({
@@ -418,57 +426,89 @@ async function main() {
   }
   console.log(`  ✓ ${rateAssumptions.length} rate assumptions`);
 
-  // ── TEP Results (Base Case scenario) ─────────────────────────────────────
-  // Model each competitor's estimated total price per CLIN for the base case
+  // ── TEP Results — all three scenarios ────────────────────────────────────
+  // competitor[0]=Leidos  [1]=BAH  [2]=SAIC  [3]=Peraton
+  // competitorId: null  = OurCo own estimate
+  //
+  // Pricing rationale:
+  //   Base Case      1.00×  |  OurCo $317M  (−7.1% vs Peraton $341M)
+  //   Conservative  +1.15×  |  OurCo $365M  (−6.9% vs Peraton $392M)
+  //   Aggressive    −0.90×  |  OurCo $283M  (−7.8% vs Peraton $307M)
+  //
+  // OurCo is positioned as a Strong Incumbent — 7% below lowest competitor
+  // reflects transition-risk advantage without leaving money on the table.
+
+  function scenarioRows(sc, leidos, bah, saic, peraton, ourco) {
+    const rows = [];
+    const groups = [
+      { competitorId: competitors[0].id, prices: leidos,  score: 88 },
+      { competitorId: competitors[1].id, prices: bah,     score: 92 },
+      { competitorId: competitors[2].id, prices: saic,    score: 84 },
+      { competitorId: competitors[3].id, prices: peraton, score: 80 },
+      { competitorId: null,              prices: ourco,   score: null },
+    ];
+    for (const { competitorId, prices, score } of groups) {
+      ["0001", "0002", "0003", "0004"].forEach((clinNum, i) => {
+        rows.push({ scenarioId: sc.id, competitorId, clinNumber: clinNum, totalPrice: prices[i], technicalScore: score });
+      });
+    }
+    return rows;
+  }
+
   const tepData = [
-    // Leidos estimates
-    { competitorId: competitors[0].id, clinNumber: "0001", totalPrice: 185000000, evaluatedPrice: 185000000, technicalScore: 88 },
-    { competitorId: competitors[0].id, clinNumber: "0002", totalPrice: 152000000, evaluatedPrice: 152000000, technicalScore: 88 },
-    { competitorId: competitors[0].id, clinNumber: "0003", totalPrice: 28000000,  evaluatedPrice: 28000000,  technicalScore: 88 },
-    { competitorId: competitors[0].id, clinNumber: "0004", totalPrice: 22000000,  evaluatedPrice: 22000000,  technicalScore: 88 },
+    // ── Base Case ─────────────────────────────────────────────────────────
+    ...scenarioRows(baseCase,
+      [185_000_000, 152_000_000, 28_000_000, 22_000_000],  // Leidos   $387M
+      [197_000_000, 161_000_000, 30_000_000, 24_000_000],  // BAH      $412M
+      [175_000_000, 144_000_000, 25_000_000, 19_000_000],  // SAIC     $363M
+      [168_000_000, 137_000_000, 22_000_000, 14_000_000],  // Peraton  $341M  ← lowest
+      [157_000_000, 128_000_000, 20_000_000, 12_000_000],  // OurCo    $317M  (−7.0%)
+    ),
 
-    // Booz Allen estimates
-    { competitorId: competitors[1].id, clinNumber: "0001", totalPrice: 197000000, evaluatedPrice: 197000000, technicalScore: 92 },
-    { competitorId: competitors[1].id, clinNumber: "0002", totalPrice: 161000000, evaluatedPrice: 161000000, technicalScore: 92 },
-    { competitorId: competitors[1].id, clinNumber: "0003", totalPrice: 30000000,  evaluatedPrice: 30000000,  technicalScore: 92 },
-    { competitorId: competitors[1].id, clinNumber: "0004", totalPrice: 24000000,  evaluatedPrice: 24000000,  technicalScore: 92 },
+    // ── Conservative (+15%) ───────────────────────────────────────────────
+    ...scenarioRows(conservative,
+      [213_000_000, 175_000_000, 32_000_000, 25_000_000],  // Leidos   $445M
+      [227_000_000, 185_000_000, 35_000_000, 28_000_000],  // BAH      $475M
+      [201_000_000, 166_000_000, 29_000_000, 22_000_000],  // SAIC     $418M
+      [193_000_000, 158_000_000, 25_000_000, 16_000_000],  // Peraton  $392M  ← lowest
+      [181_000_000, 147_000_000, 23_000_000, 14_000_000],  // OurCo    $365M  (−6.9%)
+    ),
 
-    // SAIC estimates
-    { competitorId: competitors[2].id, clinNumber: "0001", totalPrice: 175000000, evaluatedPrice: 175000000, technicalScore: 84 },
-    { competitorId: competitors[2].id, clinNumber: "0002", totalPrice: 144000000, evaluatedPrice: 144000000, technicalScore: 84 },
-    { competitorId: competitors[2].id, clinNumber: "0003", totalPrice: 25000000,  evaluatedPrice: 25000000,  technicalScore: 84 },
-    { competitorId: competitors[2].id, clinNumber: "0004", totalPrice: 19000000,  evaluatedPrice: 19000000,  technicalScore: 84 },
-
-    // Peraton estimates
-    { competitorId: competitors[3].id, clinNumber: "0001", totalPrice: 168000000, evaluatedPrice: 168000000, technicalScore: 80 },
-    { competitorId: competitors[3].id, clinNumber: "0002", totalPrice: 137000000, evaluatedPrice: 137000000, technicalScore: 80 },
-    { competitorId: competitors[3].id, clinNumber: "0003", totalPrice: 22000000,  evaluatedPrice: 22000000,  technicalScore: 80 },
-    { competitorId: competitors[3].id, clinNumber: "0004", totalPrice: 14000000,  evaluatedPrice: 14000000,  technicalScore: 80 },
+    // ── Aggressive (−10%) ─────────────────────────────────────────────────
+    ...scenarioRows(aggressive,
+      [167_000_000, 137_000_000, 25_000_000, 20_000_000],  // Leidos   $349M
+      [177_000_000, 145_000_000, 27_000_000, 22_000_000],  // BAH      $371M
+      [158_000_000, 130_000_000, 23_000_000, 17_000_000],  // SAIC     $328M
+      [151_000_000, 123_000_000, 20_000_000, 13_000_000],  // Peraton  $307M  ← lowest
+      [140_000_000, 114_000_000, 18_000_000, 11_000_000],  // OurCo    $283M  (−7.8%)
+    ),
   ];
 
   const clinMap = Object.fromEntries(clins.map((c) => [c.clinNumber, c]));
 
   const tepResults = [];
   for (const tep of tepData) {
-    const { clinNumber, ...rest } = tep;
+    const { clinNumber, scenarioId, ...rest } = tep;
     const clin = clinMap[clinNumber];
     const record = await prisma.tepResult.create({
       data: {
-        scenarioId: baseCase.id,
+        scenarioId,
         clinId: clin.id,
-        notes: `Base Case estimate for ${clin.clinNumber}`,
+        evaluatedPrice: rest.totalPrice,
+        notes: `Analyst estimate — CLIN ${clin.clinNumber}`,
         breakdown: {
           laborHours: clin.quantity,
-          laborCost: rest.totalPrice * 0.78,
-          odcs: rest.totalPrice * 0.12,
-          fee: rest.totalPrice * 0.10,
+          laborCost: rest.totalPrice * 0.76,
+          odcs:       rest.totalPrice * 0.10,
+          fee:        rest.totalPrice * 0.09,
         },
         ...rest,
       },
     });
     tepResults.push(record);
   }
-  console.log(`  ✓ ${tepResults.length} TEP results`);
+  const perScenario = tepResults.length / 3;
+  console.log(`  ✓ ${tepResults.length} TEP results (3 scenarios × ${perScenario} records each)`);
 
   console.log("\n✅ Database seeded successfully!");
   console.log(`   Contract: ${contract.title}`);

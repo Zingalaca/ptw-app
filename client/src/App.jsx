@@ -1,7 +1,7 @@
-import TEPTable from './components/TEPCalculator/TEPTable'
+import PTWDashboard from './components/PTWDashboard/PTWDashboard'
 
 function App() {
-  return <TEPTable />
+  return <PTWDashboard />
 }
 
 export default App
