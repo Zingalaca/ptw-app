@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAppContext } from '../../context/AppContext'
+import { API_BASE } from '../../lib/api.js'
 import {
   BarChart,
   Bar,
@@ -274,7 +275,7 @@ export default function PTWDashboard() {
     if (!selectedContractId) return
     setScenarioId(null)
     setData(null)
-    fetch(`/api/scenarios?contractId=${selectedContractId}`)
+    fetch(`${API_BASE}/api/scenarios?contractId=${selectedContractId}`)
       .then((r) => r.json())
       .then((scens) => {
         setScenarios(scens)
@@ -288,7 +289,7 @@ export default function PTWDashboard() {
     if (!scenarioId) return
     setLoading(true)
     setError(null)
-    fetch(`/api/scenarios/${scenarioId}/results`)
+    fetch(`${API_BASE}/api/scenarios/${scenarioId}/results`)
       .then((r) => r.json())
       .then(setData)
       .catch((e) => setError(e.message))

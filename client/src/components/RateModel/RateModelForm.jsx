@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAppContext } from '../../context/AppContext'
+import { API_BASE } from '../../lib/api.js'
 
 const EMPTY_FORM = {
   companyName: '',
@@ -143,9 +144,9 @@ export default function RateModelForm() {
     setSelectedId(null)
     setForm(EMPTY_FORM)
     Promise.all([
-      fetch(`/api/contracts/${selectedContractId}/competitors`).then((r) => r.json()),
-      fetch(`/api/scenarios?contractId=${selectedContractId}`).then((r) => r.json()),
-      fetch(`/api/contracts/${selectedContractId}/clins`).then((r) => r.json()),
+      fetch(`${API_BASE}/api/contracts/${selectedContractId}/competitors`).then((r) => r.json()),
+      fetch(`${API_BASE}/api/scenarios?contractId=${selectedContractId}`).then((r) => r.json()),
+      fetch(`${API_BASE}/api/contracts/${selectedContractId}/clins`).then((r) => r.json()),
     ])
       .then(([comps, scens, clins]) => {
         setCompetitors(comps)
@@ -179,7 +180,7 @@ export default function RateModelForm() {
     setForm({ ...EMPTY_FORM, companyName: competitor.name })
     setLoading(true)
 
-    fetch(`/api/competitors/${competitor.id}/rates`)
+    fetch(`${API_BASE}/api/competitors/${competitor.id}/rates`)
       .then((r) => r.json())
       .then((data) => {
         // Rates are stored as { breakdown: { rateAssumption: {...} } } on any CLIN entry
@@ -209,7 +210,7 @@ export default function RateModelForm() {
     setStatus(null)
 
     try {
-      const res = await fetch(`/api/competitors/${selectedId}/rates`, {
+      const res = await fetch(`${API_BASE}/api/competitors/${selectedId}/rates`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

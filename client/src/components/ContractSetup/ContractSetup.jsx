@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAppContext } from '../../context/AppContext'
+import { API_BASE } from '../../lib/api.js'
 
 const SET_ASIDE_OPTIONS = [
   { value: '', label: 'None / Full & Open' },
@@ -77,7 +78,7 @@ export default function ContractSetup() {
       })
     }
     // Fetch CLINs
-    fetch(`/api/contracts/${selectedContractId}/clins`)
+    fetch(`${API_BASE}/api/contracts/${selectedContractId}/clins`)
       .then((r) => r.json())
       .then(setClins)
       .catch(console.error)
@@ -113,7 +114,7 @@ export default function ContractSetup() {
 
       let saved
       if (isNew) {
-        const res = await fetch('/api/contracts', {
+        const res = await fetch(`${API_BASE}/api/contracts`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -121,7 +122,7 @@ export default function ContractSetup() {
         if (!res.ok) throw new Error((await res.json()).error ?? res.statusText)
         saved = await res.json()
       } else {
-        const res = await fetch(`/api/contracts/${selectedContractId}`, {
+        const res = await fetch(`${API_BASE}/api/contracts/${selectedContractId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -131,7 +132,7 @@ export default function ContractSetup() {
       }
 
       // Reload contracts list
-      const updated = await fetch('/api/contracts').then((r) => r.json())
+      const updated = await fetch(`${API_BASE}/api/contracts`).then((r) => r.json())
       setContracts(updated)
       if (isNew) {
         setSelectedContractId(saved.id)
@@ -159,7 +160,7 @@ export default function ContractSetup() {
       optionYear: null,
     }
     try {
-      const res = await fetch(`/api/contracts/${selectedContractId}/clins`, {
+      const res = await fetch(`${API_BASE}/api/contracts/${selectedContractId}/clins`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newClin),
@@ -174,7 +175,7 @@ export default function ContractSetup() {
 
   async function handleDeleteClin(clinId) {
     try {
-      await fetch(`/api/contracts/${selectedContractId}/clins/${clinId}`, { method: 'DELETE' })
+      await fetch(`${API_BASE}/api/contracts/${selectedContractId}/clins/${clinId}`, { method: 'DELETE' })
       setClins((prev) => prev.filter((c) => c.id !== clinId))
     } catch (err) {
       setStatus({ type: 'error', msg: `Delete failed: ${err.message}` })
@@ -191,7 +192,7 @@ export default function ContractSetup() {
     if (!clin.clinNumber || !clin.description || !clin.clinType) return
     setClinSaving((s) => ({ ...s, [clin.id]: true }))
     try {
-      const res = await fetch(`/api/contracts/${selectedContractId}/clins/${clin.id}`, {
+      const res = await fetch(`${API_BASE}/api/contracts/${selectedContractId}/clins/${clin.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

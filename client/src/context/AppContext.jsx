@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react'
+import { API_BASE } from '../lib/api.js'
 
 const AppContext = createContext(null)
 
@@ -26,7 +27,7 @@ export function AppProvider({ children }) {
   }
 
   useEffect(() => {
-    fetch('/api/contracts')
+    fetch(`${API_BASE}/api/contracts`)
       .then((r) => r.json())
       .then((data) => {
         setContracts(data)

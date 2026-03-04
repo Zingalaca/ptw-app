@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAppContext } from '../../context/AppContext'
+import { API_BASE } from '../../lib/api.js'
 
 const BID_STRATEGIES = [
   { id: 'aggressive',   label: 'Aggressive',   note: '−10% vs. lowest competitor', pct: -0.10 },
@@ -331,7 +332,7 @@ export default function TEPTable() {
     if (!selectedContractId) return
     setScenarioId(null)
     setData(null)
-    fetch(`/api/scenarios?contractId=${selectedContractId}`)
+    fetch(`${API_BASE}/api/scenarios?contractId=${selectedContractId}`)
       .then((r) => r.json())
       .then((scens) => {
         setScenarios(scens)
@@ -346,7 +347,7 @@ export default function TEPTable() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/scenarios/${id}/results`)
+      const res = await fetch(`${API_BASE}/api/scenarios/${id}/results`)
       if (!res.ok) throw new Error(await res.text())
       setData(await res.json())
     } catch (e) {
@@ -367,7 +368,7 @@ export default function TEPTable() {
     setCalculating(true)
     setError(null)
     try {
-      const res = await fetch(`/api/scenarios/${scenarioId}/calculate`, {
+      const res = await fetch(`${API_BASE}/api/scenarios/${scenarioId}/calculate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
