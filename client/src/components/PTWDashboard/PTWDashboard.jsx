@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useAppContext } from '../../context/AppContext'
 import {
   BarChart,
   Bar,
@@ -12,8 +13,6 @@ import {
   ResponsiveContainer,
   LabelList,
 } from 'recharts'
-
-const CONTRACT_ID = 1
 
 // ─── Win Presets ──────────────────────────────────────────────────────────────
 
@@ -256,6 +255,7 @@ function FineTuneSlider({ value, onChange }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function PTWDashboard() {
+  const { selectedContractId, setSelectedScenarioId } = useAppContext()
   const [scenarios, setScenarios] = useState([])
   const [scenarioId, setScenarioId] = useState(null)
   const [data, setData] = useState(null)
@@ -264,9 +264,17 @@ export default function PTWDashboard() {
   const [preset, setPreset] = useState(WIN_PRESETS[1]) // default: Incumbent (Standard)
   const [fineTune, setFineTune] = useState(0)
 
+  // Sync local scenarioId → context
+  useEffect(() => {
+    setSelectedScenarioId(scenarioId)
+  }, [scenarioId, setSelectedScenarioId])
+
   // ── Bootstrap ───────────────────────────────────────────────────────────────
   useEffect(() => {
-    fetch(`/api/scenarios?contractId=${CONTRACT_ID}`)
+    if (!selectedContractId) return
+    setScenarioId(null)
+    setData(null)
+    fetch(`/api/scenarios?contractId=${selectedContractId}`)
       .then((r) => r.json())
       .then((scens) => {
         setScenarios(scens)
@@ -274,7 +282,7 @@ export default function PTWDashboard() {
         if (baseline) setScenarioId(baseline.id)
       })
       .catch(console.error)
-  }, [])
+  }, [selectedContractId])
 
   useEffect(() => {
     if (!scenarioId) return

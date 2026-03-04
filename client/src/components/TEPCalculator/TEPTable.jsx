@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-
-const CONTRACT_ID = 1
+import { useAppContext } from '../../context/AppContext'
 
 const BID_STRATEGIES = [
   { id: 'aggressive',   label: 'Aggressive',   note: '−10% vs. lowest competitor', pct: -0.10 },
@@ -318,6 +317,7 @@ function TEPTableInner({ tableData }) {
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 export default function TEPTable() {
+  const { selectedContractId } = useAppContext()
   const [scenarios, setScenarios] = useState([])
   const [scenarioId, setScenarioId] = useState(null)
   const [data, setData] = useState(null)
@@ -328,7 +328,10 @@ export default function TEPTable() {
 
   // ── Bootstrap: load scenario list ─────────────────────────────────────────
   useEffect(() => {
-    fetch(`/api/scenarios?contractId=${CONTRACT_ID}`)
+    if (!selectedContractId) return
+    setScenarioId(null)
+    setData(null)
+    fetch(`/api/scenarios?contractId=${selectedContractId}`)
       .then((r) => r.json())
       .then((scens) => {
         setScenarios(scens)
@@ -336,7 +339,7 @@ export default function TEPTable() {
         if (baseline) setScenarioId(baseline.id)
       })
       .catch(console.error)
-  }, [])
+  }, [selectedContractId])
 
   // ── Load results ──────────────────────────────────────────────────────────
   const loadResults = useCallback(async (id) => {

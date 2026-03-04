@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
-
-const CONTRACT_ID = 1
+import { useAppContext } from '../../context/AppContext'
 
 const EMPTY_FORM = {
   companyName: '',
@@ -126,6 +125,7 @@ function CompetitorRow({ competitor, isSelected, onEdit }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function RateModelForm() {
+  const { selectedContractId } = useAppContext()
   const [competitors, setCompetitors] = useState([])
   const [scenarios, setScenarios] = useState([])
   const [firstClinId, setFirstClinId] = useState(null)
@@ -139,10 +139,13 @@ export default function RateModelForm() {
 
   // ── Bootstrap data ─────────────────────────────────────────────────────────
   useEffect(() => {
+    if (!selectedContractId) return
+    setSelectedId(null)
+    setForm(EMPTY_FORM)
     Promise.all([
-      fetch(`/api/contracts/${CONTRACT_ID}/competitors`).then((r) => r.json()),
-      fetch(`/api/scenarios?contractId=${CONTRACT_ID}`).then((r) => r.json()),
-      fetch(`/api/contracts/${CONTRACT_ID}/clins`).then((r) => r.json()),
+      fetch(`/api/contracts/${selectedContractId}/competitors`).then((r) => r.json()),
+      fetch(`/api/scenarios?contractId=${selectedContractId}`).then((r) => r.json()),
+      fetch(`/api/contracts/${selectedContractId}/clins`).then((r) => r.json()),
     ])
       .then(([comps, scens, clins]) => {
         setCompetitors(comps)
@@ -153,7 +156,7 @@ export default function RateModelForm() {
         if (base) setFirstClinId(base.id)
       })
       .catch((err) => console.error('Bootstrap error:', err))
-  }, [])
+  }, [selectedContractId])
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   function set(field) {

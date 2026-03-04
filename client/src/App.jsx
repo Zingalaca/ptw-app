@@ -1,7 +1,12 @@
-import PTWDashboard from './components/PTWDashboard/PTWDashboard'
+import { AppProvider } from './context/AppContext'
+import AppShell from './components/AppShell/AppShell'
 
 function App() {
-  return <PTWDashboard />
+  return (
+    <AppProvider>
+      <AppShell />
+    </AppProvider>
+  )
 }
 
 export default App
