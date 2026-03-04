@@ -1,7 +1,7 @@
-import RateModelForm from './components/RateModel/RateModelForm'
+import TEPTable from './components/TEPCalculator/TEPTable'
 
 function App() {
-  return <RateModelForm />
+  return <TEPTable />
 }
 
 export default App
