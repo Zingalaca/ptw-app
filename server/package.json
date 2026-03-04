@@ -7,7 +7,15 @@
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev"
+    "prisma:migrate": "prisma migrate dev",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest",
+    "test:watch": "node --experimental-vm-modules node_modules/.bin/jest --watch"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/__tests__/**/*.test.js"
+    ]
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.4.2",
@@ -16,6 +24,7 @@
     "express": "^5.2.1"
   },
   "devDependencies": {
+    "jest": "^30.2.0",
     "prisma": "^7.4.2"
   },
   "prisma": {
