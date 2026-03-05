@@ -5,12 +5,14 @@ import PTWDashboard from '../PTWDashboard/PTWDashboard'
 import TEPTable from '../TEPCalculator/TEPTable'
 import RateModelForm from '../RateModel/RateModelForm'
 import ContractSetup from '../ContractSetup/ContractSetup'
+import Settings from '../Settings/Settings'
 
 const PAGES = {
   dashboard: PTWDashboard,
   tep: TEPTable,
   rates: RateModelForm,
   setup: ContractSetup,
+  settings: Settings,
 }
 
 export default function AppShell() {

@@ -28,6 +28,7 @@ model Contract {
   clins            Clin[]
   scenarios        Scenario[]
   competitors      Competitor[]
+  rateProfiles     CompetitorRateProfile[]
 }
 
 // ─── Clin ─────────────────────────────────────────────────────────────────────
@@ -83,8 +84,9 @@ model Competitor {
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 
-  contract          Contract    @relation(fields: [contractId], references: [id])
+  contract          Contract              @relation(fields: [contractId], references: [id])
   tepResults        TepResult[]
+  rateProfile       CompetitorRateProfile?
 }
 
 // ─── RateAssumption ───────────────────────────────────────────────────────────
@@ -127,6 +129,36 @@ model TepResult {
   scenario       Scenario    @relation(fields: [scenarioId], references: [id])
   clin           Clin        @relation(fields: [clinId], references: [id])
   competitor     Competitor? @relation(fields: [competitorId], references: [id])
+}
+
+// ─── CompetitorRateProfile ────────────────────────────────────────────────────
+// Company-level overhead/burden rate assumptions for a competitor (or own company)
+model CompetitorRateProfile {
+  id                   Int         @id @default(autoincrement())
+  competitorId         Int?        @unique  // null = own company (OurCo)
+  contractId           Int
+  companyName          String
+  companyType          String?     @default("public")
+  engLocation          String?
+  prodLocation         String?
+  engGeoOffset         Float?      // percentage (e.g. 5.0 = 5%)
+  prodGeoOffset        Float?
+  fringeInOH           Boolean     @default(true)
+  fringeRate           Float?
+  engOHRate            Float?
+  mfgOHRate            Float?
+  materialHandlingRate Float?
+  subkHandlingRate     Float?
+  gaRate               Float?
+  feeRate              Float?
+  valueAddedGA         Boolean     @default(false)
+  escalationRate       Float?
+  notes                String?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  competitor           Competitor? @relation(fields: [competitorId], references: [id])
+  contract             Contract    @relation(fields: [contractId], references: [id])
 }
 
 // ─── GeographicIndex ──────────────────────────────────────────────────────────

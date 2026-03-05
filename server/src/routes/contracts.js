@@ -167,6 +167,7 @@ router.get('/:id/competitors', async (req, res) => {
   const contractId = Number(req.params.id);
   const competitors = await prisma.competitor.findMany({
     where: { contractId },
+    include: { rateProfile: true },
     orderBy: { name: 'asc' },
   });
   res.json(competitors);

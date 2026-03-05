@@ -2,79 +2,59 @@ import { useState, useEffect } from 'react'
 import { useAppContext } from '../../context/AppContext'
 import { API_BASE } from '../../lib/api.js'
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Cell,
-  ReferenceArea,
-  ReferenceLine,
-  ResponsiveContainer,
-  LabelList,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
+  ReferenceArea, ReferenceLine, ResponsiveContainer, LabelList,
 } from 'recharts'
 
-// ─── Win Presets ──────────────────────────────────────────────────────────────
+// ─── Competitive Posture Presets ──────────────────────────────────────────────
 
-const WIN_PRESETS = [
+const POSTURE_PRESETS = [
   {
     id: 'strong-incumbent',
     label: 'Strong Incumbent',
-    description:
-      'You hold the current contract with excellent past performance. Transition risk and customer continuity preference work in your favor. You can price at or near market and still win.',
-    bandLow: 0.97,
-    bandHigh: 1.03,
-    midpoint: 1.00,
+    postureModifier: 15,
+    bandLow: 0.97, bandHigh: 1.03, midpoint: 1.00,
+    description: 'You hold the current contract with excellent past performance. Transition risk and customer continuity preference work in your favor. You can price at or near market and still win.',
   },
   {
     id: 'incumbent',
-    label: 'Incumbent (Standard)',
-    description:
-      "You're re-competing with a solid track record, but aggressive challengers will undercut you. A modest discount from current contract value is typically required to hold the award.",
-    bandLow: 0.94,
-    bandHigh: 1.00,
-    midpoint: 0.97,
+    label: 'Incumbent',
+    postureModifier: 10,
+    bandLow: 0.94, bandHigh: 1.00, midpoint: 0.97,
+    description: "You're re-competing with a solid track record, but aggressive challengers will undercut you. A modest discount from current value is typically required to hold the award.",
   },
   {
     id: 'strong-challenger',
     label: 'Strong Challenger',
-    description:
-      'You have directly relevant experience and a competitive team, but face an entrenched incumbent. Price 5–10% below the expected lowest to overcome past-performance evaluation disadvantage.',
-    bandLow: 0.89,
-    bandHigh: 0.96,
-    midpoint: 0.93,
+    postureModifier: 5,
+    bandLow: 0.89, bandHigh: 0.96, midpoint: 0.93,
+    description: 'You have directly relevant experience and a competitive team, but face an entrenched incumbent. Price 5–10% below the expected lowest to overcome past-performance disadvantage.',
   },
   {
     id: 'new-entrant',
-    label: 'New Entrant / No PP',
-    description:
-      'Limited or no comparable past performance on this work type. Must price aggressively — 10–15% below market — to offset evaluation risk and signal commitment to the customer.',
-    bandLow: 0.84,
-    bandHigh: 0.92,
-    midpoint: 0.88,
+    label: 'New Entrant',
+    postureModifier: -10,
+    bandLow: 0.84, bandHigh: 0.92, midpoint: 0.88,
+    description: 'Limited or no comparable past performance. Must price aggressively — 10–15% below market — to offset evaluation risk and signal commitment to the customer.',
   },
   {
     id: 'lpta',
     label: 'LPTA',
-    description:
-      'Lowest Price Technically Acceptable evaluation. Award goes to the cheapest technically acceptable offeror. Price discipline is paramount — every dollar above the floor costs probability.',
-    bandLow: 0.88,
-    bandHigh: 0.94,
-    midpoint: 0.91,
+    postureModifier: 0,
+    isLPTA: true,
+    bandLow: 0.88, bandHigh: 0.94, midpoint: 0.91,
+    description: 'Lowest Price Technically Acceptable. Award goes to the cheapest technically acceptable offeror. Price discipline is paramount — you must be the lowest price or probability is 0%.',
   },
   {
     id: 'sole-source',
-    label: 'Sole Source / Price Reasonableness',
-    description:
-      'Non-competitive scenario. Pricing must be "fair and reasonable" relative to the IGCE and comparable market data. Wide band reflects negotiation latitude rather than competitive pressure.',
-    bandLow: 0.90,
-    bandHigh: 1.10,
-    midpoint: 0.98,
+    label: 'Sole Source',
+    postureModifier: 25,
+    bandLow: 0.90, bandHigh: 1.10, midpoint: 0.98,
+    description: 'Non-competitive scenario. Pricing must be "fair and reasonable" relative to the IGCE and comparable market data.',
   },
 ]
 
-// ─── Constants & helpers ──────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const BAR_COLORS = {
   own: '#60a5fa',        // blue-400
@@ -82,13 +62,24 @@ const BAR_COLORS = {
   competitor: '#64748b', // slate-500
 }
 
-const fmtM = (v) =>
-  v == null ? '—' : `$${(v / 1e6).toFixed(1)}M`
+// Default fee rate matches the slider default (10%)
+// Used to strip fee from baseline TEP before applying lever adjustments
+const DEFAULT_FEE = 10
+
+// Cost-pool weights (fraction of total TEP each pool represents in the seed data)
+// Engineering labor ≈ 30%, Production labor ≈ 46%, Materials/ODCs ≈ 10%
+const W_ENG  = 0.30
+const W_PROD = 0.46
+const W_MAT  = 0.10
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const fmtM = (v) => v == null ? '—' : `$${(v / 1e6).toFixed(1)}M`
 
 const fmtPct = (v, showPlus = true) =>
-  v == null
-    ? '—'
-    : `${showPlus && v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`
+  v == null ? '—' : `${showPlus && v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`
+
+const fmtLeverPct = (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)}%`
 
 function shortName(name) {
   return name
@@ -100,72 +91,113 @@ function shortName(name) {
 function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)) }
 function lerp(a, b, t) { return a + (b - a) * clamp(t, 0, 1) }
 
-function calcWinProb(rec, low$, mid$, high$) {
-  if (rec <= low$) {
-    // Below band floor: 90% at floor → 75% far below (aggressive pricing lowers confidence)
-    const t = clamp((low$ - rec) / (low$ * 0.15), 0, 1)
-    return Math.round(lerp(90, 75, t))
+// ── Win probability ───────────────────────────────────────────────────────────
+//
+// Step 1 — Price Score (0–100): where does Own Estimate sit vs competitor range?
+//   Anchors: below lowest=95, at lowest=85, at midLo=70, at median=55,
+//            at midHi=35, at highest=20, above highest=10
+//   Linearly interpolated between anchors.
+//
+// Step 2 — Posture Modifier (additive, per POSTURE_PRESETS[].postureModifier)
+//   e.g. Incumbent +10, New Entrant -10, Sole Source +25
+//
+// Step 3 — clamp(score + modifier, 5, 98)
+//   Exception: LPTA returns 0 if Own Estimate is not the lowest price.
+
+// Anchor points (score) vs position relative to competitor range:
+//   ≤ 20% below lowest → 95   |  score changes continuously as price moves up
+//   10% below lowest   → 88   |
+//   at lowest          → 78   |  ← $317M default sits in the 88→78 band
+//   halfway to median  → 65   |     so lever changes always move the score
+//   at median          → 50   |
+//   halfway to highest → 35   |
+//   at highest         → 20   |
+//   above highest      → 10   ↓
+function calcPriceScore(ownTEP, sortedPrices) {
+  const n = sortedPrices.length
+  if (n === 0) return 50
+
+  const lowest  = sortedPrices[0]
+  const highest = sortedPrices[n - 1]
+  const median  = n % 2 === 0
+    ? (sortedPrices[n / 2 - 1] + sortedPrices[n / 2]) / 2
+    : sortedPrices[Math.floor(n / 2)]
+
+  // Below-lowest zone: percentage anchors so this region has real gradients
+  const pct20below = lowest * 0.80  // 20% below lowest → score 95
+  const pct10below = lowest * 0.90  // 10% below lowest → score 88
+
+  if (ownTEP <= pct20below) return 95
+  if (ownTEP > highest)     return 10
+  if (ownTEP === highest)   return 20
+
+  if (ownTEP < pct10below) {
+    // between -20% and -10% below lowest
+    const t = (ownTEP - pct20below) / (pct10below - pct20below)
+    return lerp(95, 88, t)
   }
-  if (rec <= mid$) {
-    // Sweet spot — floor→midpoint: 95% → 85%
-    const t = (rec - low$) / Math.max(1, mid$ - low$)
-    return Math.round(lerp(95, 85, t))
+  if (ownTEP < lowest) {
+    // between -10% and at lowest
+    const t = (ownTEP - pct10below) / Math.max(1, lowest - pct10below)
+    return lerp(88, 78, t)
   }
-  if (rec <= high$) {
-    // Midpoint→ceiling: 80% → 45% (midpoint is "at target" ~70-80%, ceiling is risky ~45-65%)
-    const t = (rec - mid$) / Math.max(1, high$ - mid$)
-    return Math.round(lerp(80, 45, t))
+  if (ownTEP === lowest) return 78
+
+  if (lowest === highest) return 50 // degenerate edge case
+
+  const midLo = (lowest + median) / 2
+  const midHi = (median + highest) / 2
+
+  if (ownTEP <= midLo) {
+    const t = (ownTEP - lowest) / Math.max(1, midLo - lowest)
+    return lerp(78, 65, t)
   }
-  // Above band ceiling: 25% → 15%
-  const t = clamp((rec - high$) / (high$ * 0.15), 0, 1)
-  return Math.round(lerp(25, 15, t))
+  if (ownTEP <= median) {
+    const t = (ownTEP - midLo) / Math.max(1, median - midLo)
+    return lerp(65, 50, t)
+  }
+  if (ownTEP <= midHi) {
+    const t = (ownTEP - median) / Math.max(1, midHi - median)
+    return lerp(50, 35, t)
+  }
+  const t = (ownTEP - midHi) / Math.max(1, highest - midHi)
+  return lerp(35, 20, t)
+}
+
+function calcWinProb(ownTEP, compTotals, posture) {
+  if (!compTotals.length) return null
+
+  const sorted = compTotals.map(t => t.totalTep).sort((a, b) => a - b)
+  const lowest = sorted[0]
+
+  // LPTA: must be cheapest or probability = 0
+  if (posture.isLPTA && ownTEP > lowest) return 0
+
+  const priceScore = calcPriceScore(ownTEP, sorted)
+  const result = Math.round(clamp(priceScore + posture.postureModifier, 5, 98))
+
+  console.log('[WinProb]', {
+    ownTEP:          `$${(ownTEP / 1e6).toFixed(1)}M`,
+    lowest:          `$${(lowest / 1e6).toFixed(1)}M`,
+    priceScore:      priceScore.toFixed(1),
+    postureModifier: posture.postureModifier,
+    result,
+  })
+
+  return result
 }
 
 function probColor(p) {
-  if (p >= 60) return { text: 'text-emerald-400', bar: 'bg-emerald-500', ring: 'ring-emerald-500/30' }
-  if (p >= 40) return { text: 'text-amber-400',   bar: 'bg-amber-500',   ring: 'ring-amber-500/30'  }
+  if (p >= 70) return { text: 'text-emerald-400', bar: 'bg-emerald-500', ring: 'ring-emerald-500/30' }
+  if (p >= 45) return { text: 'text-amber-400',   bar: 'bg-amber-500',   ring: 'ring-amber-500/30'  }
   return              { text: 'text-red-400',      bar: 'bg-red-500',     ring: 'ring-red-500/30'    }
 }
 
-// ─── Custom chart tooltip ─────────────────────────────────────────────────────
-
-function ChartTooltip({ active, payload, lowestTEP, recommendedPrice }) {
-  if (!active || !payload?.length) return null
-  const d = payload[0].payload
-  const vsLowest = lowestTEP && d.totalTep ? (d.totalTep - lowestTEP) / lowestTEP : null
-  const vsTarget = recommendedPrice && d.totalTep ? (d.totalTep - recommendedPrice) / recommendedPrice : null
-
-  return (
-    <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl px-4 py-3 text-xs min-w-[200px] space-y-1.5">
-      <p className="font-semibold text-sm text-white border-b border-slate-700 pb-1.5 mb-1.5">
-        {d.fullName}
-      </p>
-      <Row label="Total TEP" value={fmtM(d.totalTep)} />
-      {vsLowest != null && (
-        <Row
-          label="vs. Lowest Competitor"
-          value={fmtPct(vsLowest)}
-          color={vsLowest <= 0 ? 'text-emerald-400' : 'text-red-400'}
-        />
-      )}
-      {vsTarget != null && (
-        <Row
-          label="vs. PTW Target"
-          value={fmtPct(vsTarget)}
-          color={vsTarget <= 0 ? 'text-emerald-400' : 'text-slate-400'}
-        />
-      )}
-    </div>
-  )
-}
-
-function Row({ label, value, color = 'text-slate-200' }) {
-  return (
-    <div className="flex justify-between gap-6">
-      <span className="text-slate-500">{label}</span>
-      <span className={`font-mono tabular-nums font-medium ${color}`}>{value}</span>
-    </div>
-  )
+function probLabel(p) {
+  if (p === 0)   return 'Cannot Win'
+  if (p >= 70)   return 'Favorable'
+  if (p >= 45)   return 'Contested'
+  return 'At Risk'
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -192,23 +224,23 @@ function StatCard({ label, value, sub, valueClass = 'text-white' }) {
 function WinProbMeter({ prob }) {
   const c = probColor(prob)
   return (
-    <div className={`rounded-2xl p-5 border bg-slate-900 ${c.ring} ring-1 space-y-3`}>
+    <div className={`rounded-xl p-4 border bg-slate-900 ${c.ring} ring-1 space-y-2.5`}>
       <div className="flex items-start justify-between">
         <div>
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Win Probability</p>
-          <p className={`text-5xl font-extrabold tabular-nums mt-1 ${c.text}`}>{prob}%</p>
+          <p className={`text-4xl font-extrabold tabular-nums mt-0.5 ${c.text}`}>{prob}%</p>
         </div>
-        <div className={`text-xs font-medium px-2.5 py-1 rounded-full border ${
-          prob >= 60 ? 'border-emerald-700 text-emerald-400 bg-emerald-950'
-          : prob >= 40 ? 'border-amber-700 text-amber-400 bg-amber-950'
+        <div className={`text-xs font-medium px-2.5 py-1 rounded-full border mt-1 ${
+          prob >= 70 ? 'border-emerald-700 text-emerald-400 bg-emerald-950'
+          : prob >= 45 ? 'border-amber-700 text-amber-400 bg-amber-950'
           : 'border-red-800 text-red-400 bg-red-950'
         }`}>
-          {prob >= 60 ? 'Favorable' : prob >= 40 ? 'Contested' : 'At Risk'}
+          {probLabel(prob)}
         </div>
       </div>
-      <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+      <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all duration-700 ease-out ${c.bar}`}
+          className={`h-full rounded-full transition-all duration-500 ease-out ${c.bar}`}
           style={{ width: `${prob}%` }}
         />
       </div>
@@ -216,39 +248,84 @@ function WinProbMeter({ prob }) {
   )
 }
 
-function FineTuneSlider({ value, onChange }) {
-  const pct = ((value + 10) / 20) * 100
+function BidLever({ label, tooltip, min, max, step = 0.5, value, onChange, formatValue, isCenter = false }) {
+  const pct = ((value - min) / (max - min)) * 100
+  const isNeg = value < (isCenter ? 0 : min + (max - min) / 2)
+  const isPos = value > (isCenter ? 0 : min + (max - min) / 2)
+
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Fine-Tune Adjustment</p>
-        <span className={`font-mono font-bold text-sm tabular-nums px-2 py-0.5 rounded ${
-          value < 0 ? 'text-emerald-400 bg-emerald-950'
-          : value > 0 ? 'text-red-400 bg-red-950'
-          : 'text-slate-400 bg-slate-800'
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-xs font-medium text-slate-300 truncate">{label}</span>
+          {tooltip && (
+            <div className="group relative flex-shrink-0">
+              <svg className="h-3.5 w-3.5 text-slate-600 hover:text-slate-400 cursor-help transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div className="absolute left-0 bottom-5 z-50 hidden group-hover:block w-60 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-xs text-slate-300 shadow-2xl leading-relaxed pointer-events-none">
+                {tooltip}
+              </div>
+            </div>
+          )}
+        </div>
+        <span className={`font-mono text-xs font-bold tabular-nums px-2 py-0.5 rounded flex-shrink-0 ${
+          isCenter
+            ? isNeg ? 'text-emerald-400 bg-emerald-950'
+              : isPos ? 'text-amber-400 bg-amber-950'
+              : 'text-slate-400 bg-slate-800'
+            : 'text-blue-400 bg-blue-950'
         }`}>
-          {value > 0 ? '+' : ''}{value.toFixed(1)}%
+          {formatValue(value)}
         </span>
       </div>
       <input
         type="range"
-        min={-10} max={10} step={0.5}
+        min={min} max={max} step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
+        className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-blue-500"
         style={{
-          background: `linear-gradient(to right,
-            #3b82f6 0%,
-            #3b82f6 ${pct}%,
-            #334155 ${pct}%,
-            #334155 100%)`,
+          background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${pct}%, #334155 ${pct}%, #334155 100%)`,
         }}
       />
       <div className="flex justify-between text-xs text-slate-600 select-none">
-        <span>−10% (aggressive)</span>
-        <span className="text-slate-500">midpoint</span>
-        <span>+10% (conservative)</span>
+        <span>{formatValue(min)}</span>
+        {isCenter && <span>0%</span>}
+        <span>{formatValue(max)}</span>
       </div>
+    </div>
+  )
+}
+
+function Row({ label, value, color = 'text-slate-200' }) {
+  return (
+    <div className="flex justify-between gap-6">
+      <span className="text-slate-500">{label}</span>
+      <span className={`font-mono tabular-nums font-medium ${color}`}>{value}</span>
+    </div>
+  )
+}
+
+function ChartTooltip({ active, payload, lowestTEP, adjustedTEP }) {
+  if (!active || !payload?.length) return null
+  const d = payload[0].payload
+  const tep = d.totalTep
+  const vsLowest = lowestTEP && tep ? (tep - lowestTEP) / lowestTEP : null
+
+  return (
+    <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl px-4 py-3 text-xs min-w-[200px] space-y-1.5">
+      <p className="font-semibold text-sm text-white border-b border-slate-700 pb-1.5 mb-1.5">
+        {d.fullName}
+      </p>
+      <Row label="Total TEP" value={fmtM(tep)} />
+      {vsLowest != null && (
+        <Row
+          label="vs. Lowest Competitor"
+          value={fmtPct(vsLowest)}
+          color={vsLowest <= 0 ? 'text-emerald-400' : 'text-red-400'}
+        />
+      )}
     </div>
   )
 }
@@ -262,15 +339,26 @@ export default function PTWDashboard() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [preset, setPreset] = useState(WIN_PRESETS[1]) // default: Incumbent (Standard)
-  const [fineTune, setFineTune] = useState(0)
 
-  // Sync local scenarioId → context
+  // Controls
+  const [posture, setPosture] = useState(POSTURE_PRESETS[1]) // default: Incumbent
+  const [levers, setLevers] = useState({
+    engLabor:  0,
+    prodLabor: 0,
+    material:  0,
+    targetFee: DEFAULT_FEE,
+  })
+
+  function setLever(key, value) {
+    setLevers((prev) => ({ ...prev, [key]: value }))
+  }
+
+  // Sync scenarioId → context (enables Export button)
   useEffect(() => {
     setSelectedScenarioId(scenarioId)
   }, [scenarioId, setSelectedScenarioId])
 
-  // ── Bootstrap ───────────────────────────────────────────────────────────────
+  // Bootstrap: fetch scenarios when contract changes
   useEffect(() => {
     if (!selectedContractId) return
     setScenarioId(null)
@@ -285,6 +373,7 @@ export default function PTWDashboard() {
       .catch(console.error)
   }, [selectedContractId])
 
+  // Fetch results when scenario changes
   useEffect(() => {
     if (!scenarioId) return
     setLoading(true)
@@ -296,109 +385,106 @@ export default function PTWDashboard() {
       .finally(() => setLoading(false))
   }, [scenarioId])
 
-  // ── Derived state ────────────────────────────────────────────────────────────
-  const totals = data?.totals ?? []
-  const compTotals = totals.filter((t) => t.competitorId !== null) // exclude own estimate
-  const ownTotal   = totals.find((t)  => t.competitorId === null)
+  // ── Derived: raw TEP data ─────────────────────────────────────────────────
+  const totals     = data?.totals ?? []
+  const compTotals = totals.filter((t) => t.competitorId !== null)
+  const ownTotal   = totals.find((t) => t.competitorId === null)
 
-  // Lowest competitor TEP (totals sorted asc by API)
-  const lowestTEP = compTotals[0]?.totalTep ?? null
+  const lowestTEP  = compTotals[0]?.totalTep ?? null
+  const baselineTEP = ownTotal?.totalTep ?? null
 
-  // Win band in dollars
-  const bandLow$  = lowestTEP ? lowestTEP * preset.bandLow  : null
-  const bandHigh$ = lowestTEP ? lowestTEP * preset.bandHigh : null
-  const midpoint$ = lowestTEP ? lowestTEP * preset.midpoint : null
+  // ── Lever-adjusted TEP ───────────────────────────────────────────────────
+  // Strip the default fee from baseline, apply labor/material lever adjustments
+  // to the cost base, then reapply the target fee lever.
+  // At all-default positions (levers=0, fee=10%) adjustedTEP === baselineTEP.
+  const baseCost = baselineTEP != null ? baselineTEP / (1 + DEFAULT_FEE / 100) : null
 
-  // Recommended price = midpoint shifted by fine-tune
-  const recommendedPrice = midpoint$ ? midpoint$ * (1 + fineTune / 100) : null
+  const laborMatAdj =
+    (levers.engLabor  * W_ENG  +
+     levers.prodLabor * W_PROD +
+     levers.material  * W_MAT) / 100
 
-  // Win probability
+  const adjustedCost = baseCost != null ? baseCost * (1 + laborMatAdj) : null
+  const adjustedTEP  = adjustedCost != null ? adjustedCost * (1 + levers.targetFee / 100) : null
+
+  const leverDelta    = adjustedTEP != null && baselineTEP != null ? adjustedTEP - baselineTEP : null
+  const leverDeltaPct = leverDelta != null && baselineTEP ? leverDelta / baselineTEP : null
+
+  // ── Competitive posture band ─────────────────────────────────────────────
+  const bandLow$  = lowestTEP ? lowestTEP * posture.bandLow  : null
+  const bandHigh$ = lowestTEP ? lowestTEP * posture.bandHigh : null
+  const midpoint$ = lowestTEP ? lowestTEP * posture.midpoint : null
+
+  // ── Win probability ───────────────────────────────────────────────────────
+  // Price score from actual competitor range, + posture modifier, clamped 5–98.
+  // LPTA exception: returns 0 if Own Estimate is not the lowest price.
   const winProb =
-    recommendedPrice && bandLow$ && midpoint$ && bandHigh$
-      ? calcWinProb(recommendedPrice, bandLow$, midpoint$, bandHigh$)
+    adjustedTEP != null && compTotals.length > 0
+      ? calcWinProb(adjustedTEP, compTotals, posture)
       : null
 
-  // Chart data: sorted descending so lowest bar renders at bottom
-  const chartData = [...compTotals, ...(ownTotal ? [ownTotal] : [])]
+  // ── Chart data ────────────────────────────────────────────────────────────
+  // Own Estimate bar uses adjustedTEP so it updates live with lever changes
+  const chartData = [
+    ...compTotals,
+    ...(ownTotal ? [{ ...ownTotal, totalTep: adjustedTEP ?? ownTotal.totalTep }] : []),
+  ]
     .sort((a, b) => b.totalTep - a.totalTep)
     .map((t) => ({
-      name: shortName(t.competitorName),
+      name:     shortName(t.competitorName),
       fullName: t.competitorName,
       totalTep: t.totalTep,
       category: t.competitorId === null ? 'own' : 'competitor',
     }))
 
   const maxVal = Math.max(
-    ...chartData.map((d) => d.totalTep),
+    ...chartData.map((d) => d.totalTep ?? 0),
     bandHigh$ ?? 0,
-    recommendedPrice ?? 0,
+    midpoint$  ?? 0,
   )
-  const xMax = Math.ceil(maxVal / 5e6) * 5e6 + 1e7
+  const xMax    = Math.ceil(maxVal / 5e6) * 5e6 + 1e7
   const xDomain = [0, xMax]
 
-  function handlePresetChange(p) {
-    setPreset(p)
-    setFineTune(0)
-  }
-
   const hasData = chartData.length > 0
-  const positionLabel =
-    recommendedPrice == null ? null
-    : recommendedPrice < bandLow$  ? 'Below band — high probability, watch margin floor'
-    : recommendedPrice > bandHigh$ ? 'Above band — low probability, protected margin'
-    : 'Within win band — balanced price / probability'
-
   const currentScenario = scenarios.find((s) => s.id === scenarioId)
 
-  // ─────────────────────────────────────────────────────────────────────────────
+  const positionLabel =
+    adjustedTEP == null ? null
+    : adjustedTEP < bandLow$  ? 'Below band — aggressive; watch margin floor'
+    : adjustedTEP > bandHigh$ ? 'Above band — reduced probability; protected margin'
+    : 'Within win band — balanced price / probability'
+
+  // ────────────────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <div className="max-w-[1400px] mx-auto px-6 py-8 space-y-7">
 
-        {/* ── Page header ─────────────────────────────────────────────────── */}
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight text-white">
-                Price to Win Dashboard
-              </h1>
-              <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-blue-950 text-blue-400 border border-blue-800">
-                Management View
-              </span>
-            </div>
-            {currentScenario && (
-              <p className="text-slate-500 text-sm mt-1">
-                <span className="text-slate-400 font-medium">{currentScenario.name}</span>
-                {' — '}{currentScenario.description}
-              </p>
-            )}
-          </div>
-
-          {/* Scenario selector */}
+        {/* ── Page header ──────────────────────────────────────────────────── */}
+        <div>
           <div className="flex items-center gap-3">
-            <label className="text-xs text-slate-500 uppercase tracking-wider font-medium">Scenario</label>
-            <select
-              value={scenarioId ?? ''}
-              onChange={(e) => { setScenarioId(Number(e.target.value)); setFineTune(0) }}
-              className="bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              {scenarios.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}{s.isBaseline ? ' ★' : ''}
-                </option>
-              ))}
-            </select>
+            <h1 className="text-2xl font-bold tracking-tight text-white">
+              Price to Win Dashboard
+            </h1>
+            <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-blue-950 text-blue-400 border border-blue-800">
+              Management View
+            </span>
           </div>
+          {currentScenario && (
+            <p className="text-slate-500 text-sm mt-1">
+              <span className="text-slate-400 font-medium">{currentScenario.name}</span>
+              {' — '}{currentScenario.description}
+            </p>
+          )}
         </div>
 
-        {/* ── Error ───────────────────────────────────────────────────────── */}
+        {/* ── Error ────────────────────────────────────────────────────────── */}
         {error && (
           <div className="bg-red-950 border border-red-800 rounded-xl px-4 py-3 text-sm text-red-300">
             {error}
           </div>
         )}
 
-        {/* ── Summary stats strip ─────────────────────────────────────────── */}
+        {/* ── Stat strip ───────────────────────────────────────────────────── */}
         {hasData && lowestTEP && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <StatCard
@@ -408,36 +494,41 @@ export default function PTWDashboard() {
               valueClass="text-emerald-400"
             />
             <StatCard
-              label="Highest Competitor"
-              value={fmtM(compTotals[compTotals.length - 1]?.totalTep)}
-              sub={compTotals[compTotals.length - 1]?.competitorName?.split(' ')[0]}
-              valueClass="text-slate-300"
+              label="Adjusted Bid"
+              value={fmtM(adjustedTEP)}
+              sub={leverDelta != null && Math.abs(leverDelta) > 1e4
+                ? `${leverDelta < 0 ? '' : '+'}${fmtM(leverDelta)} vs. baseline`
+                : 'no lever adjustments'}
+              valueClass="text-blue-400"
             />
             <StatCard
-              label="PTW Target"
-              value={fmtM(recommendedPrice)}
-              sub={`${preset.label} + ${fineTune > 0 ? '+' : ''}${fineTune.toFixed(1)}%`}
-              valueClass="text-blue-400"
+              label="Delta from Baseline"
+              value={leverDeltaPct != null ? fmtPct(leverDeltaPct) : '—'}
+              sub={leverDelta != null && Math.abs(leverDelta) > 1e4 ? fmtM(leverDelta) : 'baseline TEP'}
+              valueClass={
+                leverDeltaPct == null || Math.abs(leverDeltaPct) < 0.0001 ? 'text-slate-400'
+                : leverDeltaPct < 0 ? 'text-emerald-400' : 'text-amber-400'
+              }
             />
             <StatCard
               label="Win Probability"
               value={winProb != null ? `${winProb}%` : '—'}
-              sub="based on position in band"
+              sub={winProb != null ? `${probLabel(winProb)} · ${posture.label}` : posture.label}
               valueClass={winProb != null ? probColor(winProb).text : 'text-slate-400'}
             />
           </div>
         )}
 
-        {/* ── Main 2-col grid ─────────────────────────────────────────────── */}
+        {/* ── Main 2-col grid ──────────────────────────────────────────────── */}
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
 
-          {/* ── Left: Chart ─────────────────────────────────────────────── */}
+          {/* ── Left: Chart ────────────────────────────────────────────────── */}
           <div className="xl:col-span-2 bg-slate-900 rounded-2xl border border-slate-800 p-6">
             <div className="flex items-center justify-between mb-5">
               <div>
                 <h2 className="font-semibold text-white">TEP Competitive Landscape</h2>
                 <p className="text-slate-500 text-xs mt-0.5">
-                  Horizontal bars sorted ascending by Total Evaluated Price · Green band = PTW win zone
+                  Own Estimate bar updates live with bid lever changes · Green band = PTW win zone
                 </p>
               </div>
               {loading && <Spinner />}
@@ -453,7 +544,7 @@ export default function PTWDashboard() {
                     />
                   </svg>
                   <p className="text-slate-500 text-sm">No TEP results for this scenario.</p>
-                  <p className="text-slate-600 text-xs">Switch to Base Case or run a calculation.</p>
+                  <p className="text-slate-600 text-xs">Switch to the TEP Calculator and run a calculation.</p>
                 </div>
               </div>
             )}
@@ -468,12 +559,7 @@ export default function PTWDashboard() {
                     barSize={30}
                     barCategoryGap="30%"
                   >
-                    <CartesianGrid
-                      horizontal={false}
-                      vertical={true}
-                      stroke="#1e293b"
-                      strokeDasharray="4 4"
-                    />
+                    <CartesianGrid horizontal={false} vertical stroke="#1e293b" strokeDasharray="4 4" />
 
                     <XAxis
                       type="number"
@@ -495,58 +581,39 @@ export default function PTWDashboard() {
                     />
 
                     <Tooltip
-                      content={
-                        <ChartTooltip
-                          lowestTEP={lowestTEP}
-                          recommendedPrice={recommendedPrice}
-                        />
-                      }
+                      content={<ChartTooltip lowestTEP={lowestTEP} adjustedTEP={adjustedTEP} />}
                       cursor={{ fill: 'rgba(255,255,255,0.03)' }}
                     />
 
-                    {/* ── Win band shaded region ───────────────────────── */}
+                    {/* Win band shaded region */}
                     {bandLow$ && bandHigh$ && (
                       <ReferenceArea
-                        x1={bandLow$}
-                        x2={bandHigh$}
-                        fill="#22c55e"
-                        fillOpacity={0.10}
-                        stroke="#22c55e"
-                        strokeOpacity={0.25}
-                        strokeWidth={1}
-                        strokeDasharray="3 3"
+                        x1={bandLow$} x2={bandHigh$}
+                        fill="#22c55e" fillOpacity={0.10}
+                        stroke="#22c55e" strokeOpacity={0.25}
+                        strokeWidth={1} strokeDasharray="3 3"
                       />
                     )}
 
-                    {/* ── Band floor line ──────────────────────────────── */}
+                    {/* Band floor */}
                     {bandLow$ && (
-                      <ReferenceLine
-                        x={bandLow$}
-                        stroke="#22c55e"
-                        strokeWidth={1}
-                        strokeOpacity={0.6}
-                      />
+                      <ReferenceLine x={bandLow$} stroke="#22c55e" strokeWidth={1} strokeOpacity={0.6} />
                     )}
 
-                    {/* ── Band ceiling line ────────────────────────────── */}
+                    {/* Band ceiling */}
                     {bandHigh$ && (
-                      <ReferenceLine
-                        x={bandHigh$}
-                        stroke="#22c55e"
-                        strokeWidth={1}
-                        strokeOpacity={0.35}
-                      />
+                      <ReferenceLine x={bandHigh$} stroke="#22c55e" strokeWidth={1} strokeOpacity={0.35} />
                     )}
 
-                    {/* ── PTW target / recommended price ──────────────── */}
-                    {recommendedPrice && (
+                    {/* Posture midpoint — ideal bid target */}
+                    {midpoint$ && (
                       <ReferenceLine
-                        x={recommendedPrice}
+                        x={midpoint$}
                         stroke="#60a5fa"
                         strokeWidth={2}
                         strokeDasharray="6 3"
                         label={{
-                          value: fmtM(recommendedPrice),
+                          value: fmtM(midpoint$),
                           position: 'insideTopRight',
                           fill: '#60a5fa',
                           fontSize: 11,
@@ -557,38 +624,27 @@ export default function PTWDashboard() {
                       />
                     )}
 
-                    {/* ── Bars ────────────────────────────────────────── */}
                     <Bar dataKey="totalTep" radius={[0, 5, 5, 0]}>
                       {chartData.map((entry) => (
-                        <Cell
-                          key={entry.name}
-                          fill={BAR_COLORS[entry.category]}
-                          fillOpacity={0.85}
-                        />
+                        <Cell key={entry.name} fill={BAR_COLORS[entry.category]} fillOpacity={0.85} />
                       ))}
                       <LabelList
                         dataKey="totalTep"
                         position="right"
                         formatter={fmtM}
-                        style={{
-                          fill: '#94a3b8',
-                          fontSize: 11,
-                          fontWeight: 700,
-                          fontFamily: 'ui-monospace, monospace',
-                        }}
+                        style={{ fill: '#94a3b8', fontSize: 11, fontWeight: 700, fontFamily: 'ui-monospace, monospace' }}
                       />
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
 
-                {/* Chart legend */}
+                {/* Legend */}
                 <div className="flex flex-wrap items-center gap-5 mt-5 pt-4 border-t border-slate-800">
                   {[
                     { swatch: BAR_COLORS.competitor, label: 'Competitor' },
-                    { swatch: BAR_COLORS.own,        label: 'Own Estimate' },
-                    { swatch: BAR_COLORS.subk,       label: 'SubK Partner' },
-                    { swatch: '#22c55e', label: 'Win Band', opacity: 0.45 },
-                    { dashed: '#60a5fa', label: 'PTW Target' },
+                    { swatch: BAR_COLORS.own,        label: 'Own Estimate (adjusted)' },
+                    { swatch: '#22c55e',              label: 'Win Band', opacity: 0.45 },
+                    { dashed: '#60a5fa',              label: 'Posture Midpoint' },
                   ].map((item) => (
                     <div key={item.label} className="flex items-center gap-1.5 text-xs text-slate-500">
                       {item.dashed ? (
@@ -610,106 +666,124 @@ export default function PTWDashboard() {
             )}
           </div>
 
-          {/* ── Right: Controls ─────────────────────────────────────────── */}
+          {/* ── Right: Controls ──────────────────────────────────────────────── */}
           <div className="space-y-5">
 
-            {/* Win preset selector */}
-            <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5">
-              <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">
-                Win Scenario
+            {/* ── Section 1: Bid Levers ────────────────────────────────── */}
+            <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5 space-y-5">
+              <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                Bid Levers
               </h2>
-              <div className="space-y-2">
-                {WIN_PRESETS.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => handlePresetChange(p)}
-                    className={`w-full text-left px-3.5 py-3 rounded-xl border text-sm transition-all duration-150 ${
-                      preset.id === p.id
-                        ? 'bg-blue-600/15 border-blue-500/60 text-white shadow-inner shadow-blue-950'
-                        : 'bg-slate-800/40 border-slate-700/60 text-slate-400 hover:border-slate-600 hover:text-slate-300 hover:bg-slate-800/70'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className={`font-semibold ${preset.id === p.id ? 'text-blue-300' : ''}`}>
-                        {p.label}
-                      </span>
-                      {preset.id === p.id && (
-                        <div className="flex gap-1 text-xs text-slate-500 shrink-0 font-mono">
-                          <span className="text-green-500">{(p.bandLow * 100).toFixed(0)}%</span>
-                          <span>–</span>
-                          <span className="text-slate-400">{(p.bandHigh * 100).toFixed(0)}%</span>
-                        </div>
-                      )}
-                    </div>
-                    {preset.id === p.id && (
-                      <p className="text-xs text-slate-500 mt-2 leading-relaxed">{p.description}</p>
-                    )}
-                  </button>
-                ))}
+
+              <BidLever
+                label="Engineering Labor Adjustment"
+                tooltip="Represents LCAT mix optimization for engineering scope — negative values reflect shifting to less expensive labor categories"
+                min={-20} max={20} step={0.5}
+                value={levers.engLabor}
+                onChange={(v) => setLever('engLabor', v)}
+                formatValue={fmtLeverPct}
+                isCenter
+              />
+
+              <BidLever
+                label="Production Labor Adjustment"
+                tooltip="Represents LCAT mix optimization for production scope — negative values reflect shifting to less expensive labor categories"
+                min={-20} max={20} step={0.5}
+                value={levers.prodLabor}
+                onChange={(v) => setLever('prodLabor', v)}
+                formatValue={fmtLeverPct}
+                isCenter
+              />
+
+              <BidLever
+                label="Material Cost Adjustment"
+                tooltip="Reflects better supplier pricing, make vs. buy decisions, or reduced scrap factors"
+                min={-20} max={20} step={0.5}
+                value={levers.material}
+                onChange={(v) => setLever('material', v)}
+                formatValue={fmtLeverPct}
+                isCenter
+              />
+
+              <BidLever
+                label="Target Fee"
+                tooltip="Target profit/fee rate — reducing fee improves competitive position but reduces margin"
+                min={5} max={15} step={0.5}
+                value={levers.targetFee}
+                onChange={(v) => setLever('targetFee', v)}
+                formatValue={(v) => `${v.toFixed(1)}%`}
+                isCenter={false}
+              />
+
+              {/* TEP summary */}
+              <div className="pt-4 border-t border-slate-800 space-y-2">
+                <div className="flex justify-between text-xs">
+                  <span className="text-slate-500">Baseline TEP</span>
+                  <span className="font-mono text-slate-400 tabular-nums">{fmtM(baselineTEP)}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-slate-300 font-semibold">Adjusted TEP</span>
+                  <span className="font-mono text-white font-bold tabular-nums">{fmtM(adjustedTEP)}</span>
+                </div>
+                {leverDelta != null && Math.abs(leverDelta) > 1e4 && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-500">Delta</span>
+                    <span className={`font-mono font-bold tabular-nums ${leverDelta < 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      {leverDelta >= 0 ? '+' : ''}{fmtM(leverDelta)} ({fmtPct(leverDeltaPct)})
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Fine-tune slider */}
-            <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5">
-              <FineTuneSlider value={fineTune} onChange={setFineTune} />
-
-              {/* Band details */}
-              {bandLow$ && bandHigh$ && (
-                <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
-                  <div className="bg-slate-800 rounded-lg px-2.5 py-2 text-center">
-                    <p className="text-slate-500">Floor</p>
-                    <p className="font-bold text-emerald-400 tabular-nums font-mono mt-0.5">
-                      {fmtM(bandLow$)}
-                    </p>
-                  </div>
-                  <div className="bg-blue-950/60 rounded-lg px-2.5 py-2 text-center border border-blue-900/40">
-                    <p className="text-slate-500">Target</p>
-                    <p className="font-bold text-blue-400 tabular-nums font-mono mt-0.5">
-                      {fmtM(recommendedPrice)}
-                    </p>
-                  </div>
-                  <div className="bg-slate-800 rounded-lg px-2.5 py-2 text-center">
-                    <p className="text-slate-500">Ceiling</p>
-                    <p className="font-bold text-slate-400 tabular-nums font-mono mt-0.5">
-                      {fmtM(bandHigh$)}
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* PTW Recommendation */}
-            <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-blue-950/30 rounded-2xl border border-slate-800 p-5 space-y-4">
+            {/* ── Section 2: Competitive Posture ───────────────────────── */}
+            <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5 space-y-4">
               <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                PTW Recommendation
+                Competitive Posture
               </h2>
 
-              {recommendedPrice ? (
-                <>
-                  {/* Main bid number */}
-                  <div>
-                    <p className="text-xs text-slate-500">Recommended Bid Price</p>
-                    <p className="text-4xl font-extrabold text-white tabular-nums tracking-tight mt-1">
-                      {fmtM(recommendedPrice)}
-                    </p>
-                    {lowestTEP && (
-                      <p className={`text-xs font-medium mt-1.5 tabular-nums ${
-                        recommendedPrice <= lowestTEP ? 'text-emerald-400' : 'text-slate-400'
-                      }`}>
-                        {fmtPct((recommendedPrice - lowestTEP) / lowestTEP)} vs. lowest competitor
-                        ({fmtM(lowestTEP)})
-                      </p>
-                    )}
-                  </div>
+              {/* 6 posture buttons in 2-column grid */}
+              <div className="grid grid-cols-2 gap-2">
+                {POSTURE_PRESETS.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => setPosture(p)}
+                    className={`px-3 py-2 rounded-lg border text-xs font-semibold transition-all duration-150 ${
+                      posture.id === p.id
+                        ? 'bg-blue-600/20 border-blue-500/60 text-blue-300'
+                        : 'bg-slate-800/40 border-slate-700/60 text-slate-400 hover:border-slate-600 hover:text-slate-300'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
 
-                  {/* Win probability meter */}
-                  {winProb != null && <WinProbMeter prob={winProb} />}
+              {/* Active posture details */}
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-emerald-500 font-mono font-semibold">
+                    {(posture.bandLow * 100).toFixed(0)}%
+                  </span>
+                  <span className="text-slate-600">–</span>
+                  <span className="text-slate-400 font-mono font-semibold">
+                    {(posture.bandHigh * 100).toFixed(0)}%
+                  </span>
+                  <span className="text-slate-600">of lowest competitor</span>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">{posture.description}</p>
+              </div>
+
+              {/* Win probability — updates on posture OR lever change */}
+              {winProb != null && (
+                <div className="space-y-3">
+                  <WinProbMeter prob={winProb} />
 
                   {/* Position in band */}
                   {positionLabel && (
                     <div className={`flex items-start gap-2 text-xs rounded-lg px-3 py-2.5 ${
-                      recommendedPrice < bandLow$  ? 'bg-emerald-950/50 text-emerald-400 border border-emerald-900/50'
-                      : recommendedPrice > bandHigh$ ? 'bg-red-950/50 text-red-400 border border-red-900/50'
+                      adjustedTEP < bandLow$  ? 'bg-emerald-950/50 text-emerald-400 border border-emerald-900/50'
+                      : adjustedTEP > bandHigh$ ? 'bg-red-950/50 text-red-400 border border-red-900/50'
                       : 'bg-blue-950/50 text-blue-400 border border-blue-900/50'
                     }`}>
                       <div className="w-1.5 h-1.5 rounded-full bg-current mt-0.5 flex-shrink-0" />
@@ -717,41 +791,71 @@ export default function PTWDashboard() {
                     </div>
                   )}
 
-                  {/* Comparisons */}
-                  <div className="space-y-2 pt-1 border-t border-slate-800">
-                    {ownTotal && (
-                      <div className="flex justify-between text-xs">
-                        <span className="text-slate-500">vs. Own TEP ({fmtM(ownTotal.totalTep)})</span>
+                  {/* Band floor / midpoint / ceiling */}
+                  {bandLow$ && (
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div className="bg-slate-800 rounded-lg px-2.5 py-2 text-center">
+                        <p className="text-slate-500">Floor</p>
+                        <p className="font-bold text-emerald-400 tabular-nums font-mono mt-0.5">
+                          {fmtM(bandLow$)}
+                        </p>
+                      </div>
+                      <div className="bg-blue-950/60 rounded-lg px-2.5 py-2 text-center border border-blue-900/40">
+                        <p className="text-slate-500">Midpoint</p>
+                        <p className="font-bold text-blue-400 tabular-nums font-mono mt-0.5">
+                          {fmtM(midpoint$)}
+                        </p>
+                      </div>
+                      <div className="bg-slate-800 rounded-lg px-2.5 py-2 text-center">
+                        <p className="text-slate-500">Ceiling</p>
+                        <p className="font-bold text-slate-400 tabular-nums font-mono mt-0.5">
+                          {fmtM(bandHigh$)}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Bid comparison */}
+                  <div className="space-y-1.5 text-xs border-t border-slate-800 pt-3">
+                    {lowestTEP && adjustedTEP && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">
+                          vs. Lowest ({fmtM(lowestTEP)})
+                        </span>
                         <span className={`font-mono font-bold tabular-nums ${
-                          recommendedPrice < ownTotal.totalTep ? 'text-emerald-400' : 'text-amber-400'
+                          adjustedTEP <= lowestTEP ? 'text-emerald-400' : 'text-red-400'
                         }`}>
-                          {fmtPct((recommendedPrice - ownTotal.totalTep) / ownTotal.totalTep)}
+                          {fmtPct((adjustedTEP - lowestTEP) / lowestTEP)}
                         </span>
                       </div>
                     )}
-                    <div className="flex justify-between text-xs">
-                      <span className="text-slate-500">Win scenario</span>
-                      <span className="text-slate-300 font-medium">{preset.label}</span>
-                    </div>
-                    <div className="flex justify-between text-xs">
-                      <span className="text-slate-500">Fine-tune offset</span>
-                      <span className={`font-mono tabular-nums font-bold ${
-                        fineTune < 0 ? 'text-emerald-400' : fineTune > 0 ? 'text-amber-400' : 'text-slate-500'
-                      }`}>
-                        {fineTune > 0 ? '+' : ''}{fineTune.toFixed(1)}%
-                      </span>
-                    </div>
+                    {baselineTEP && adjustedTEP && Math.abs(adjustedTEP - baselineTEP) > 1e4 && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">
+                          vs. Baseline ({fmtM(baselineTEP)})
+                        </span>
+                        <span className={`font-mono font-bold tabular-nums ${
+                          leverDeltaPct < 0 ? 'text-emerald-400' : 'text-amber-400'
+                        }`}>
+                          {fmtPct(leverDeltaPct)}
+                        </span>
+                      </div>
+                    )}
                   </div>
-                </>
-              ) : (
+                </div>
+              )}
+
+              {/* No data state */}
+              {winProb == null && hasData && (
                 <div className="py-4 text-center">
                   <p className="text-slate-500 text-sm">No competitor data available.</p>
                   <p className="text-slate-600 text-xs mt-1">
-                    Switch to Base Case to see PTW recommendations.
+                    Run the TEP Calculator to populate results.
                   </p>
                 </div>
               )}
             </div>
+
           </div>
         </div>
 

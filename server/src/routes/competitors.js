@@ -48,6 +48,31 @@ router.delete('/:id', async (req, res) => {
 // populated via the /scenarios/:id/calculate endpoint but can also be entered
 // manually here for competitive-intelligence purposes.
 
+// GET /api/competitors/:id/rate-assumptions
+// Returns the CompetitorRateProfile for this competitor, or {} if none exists yet.
+router.get('/:id/rate-assumptions', async (req, res) => {
+  const competitorId = Number(req.params.id);
+  const profile = await prisma.competitorRateProfile.findUnique({
+    where: { competitorId },
+  });
+  res.json(profile ?? {});
+});
+
+// PUT /api/competitors/:id/rate-assumptions
+// Upserts the CompetitorRateProfile for this competitor.
+router.put('/:id/rate-assumptions', async (req, res) => {
+  const competitorId = Number(req.params.id);
+  const { contractId, ...fields } = req.body;
+  if (!contractId) return res.status(400).json({ error: 'contractId is required' });
+
+  const profile = await prisma.competitorRateProfile.upsert({
+    where: { competitorId },
+    update: { ...fields },
+    create: { competitorId, contractId: Number(contractId), ...fields },
+  });
+  res.json(profile);
+});
+
 // GET /api/competitors/:id/rates
 router.get('/:id/rates', async (req, res) => {
   const competitorId = Number(req.params.id);

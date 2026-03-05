@@ -7,6 +7,7 @@ import competitorsRouter from './routes/competitors.js';
 import scenariosRouter from './routes/scenarios.js';
 import referenceRouter from './routes/reference.js';
 import exportRouter from './routes/export.js';
+import adminRouter from './routes/admin.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -27,6 +28,7 @@ app.use('/api/competitors', competitorsRouter);
 app.use('/api/scenarios', scenariosRouter);
 app.use('/api/reference', referenceRouter);
 app.use('/api/export', exportRouter);
+app.use('/api/admin', adminRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {

@@ -218,6 +218,133 @@ async function main() {
   }
   console.log(`  ✓ ${competitors.length} competitors`);
 
+  // ── Competitor Rate Profiles ───────────────────────────────────────────────
+  // Company-level overhead/burden rate assumptions keyed by competitor
+  const rateProfileData = [
+    {
+      // OurCo — own company (competitorId: null)
+      competitorId: null,
+      companyName: "Our Company",
+      companyType: "private",
+      engLocation: "Washington DC Metro",
+      prodLocation: "Hampton Roads VA",
+      engGeoOffset: 0,
+      prodGeoOffset: 0,
+      fringeInOH: true,
+      engOHRate: 95,
+      mfgOHRate: 85,
+      materialHandlingRate: 5,
+      subkHandlingRate: 3,
+      gaRate: 12,
+      feeRate: 10,
+      valueAddedGA: false,
+      escalationRate: 3,
+    },
+    {
+      // Leidos Inc. — index 0
+      companyName: "Leidos Inc.",
+      companyType: "public",
+      engLocation: "Reston VA",
+      prodLocation: "Various",
+      engGeoOffset: 0,
+      prodGeoOffset: 0,
+      fringeInOH: true,
+      engOHRate: 88,
+      mfgOHRate: 78,
+      materialHandlingRate: 4,
+      subkHandlingRate: 2,
+      gaRate: 11,
+      feeRate: 10,
+      valueAddedGA: false,
+      escalationRate: 3,
+    },
+    {
+      // Booz Allen Hamilton — index 1
+      companyName: "Booz Allen Hamilton",
+      companyType: "public",
+      engLocation: "McLean VA",
+      prodLocation: "N/A",
+      engGeoOffset: 0,
+      prodGeoOffset: 0,
+      fringeInOH: true,
+      engOHRate: 110,
+      mfgOHRate: 95,
+      materialHandlingRate: 5,
+      subkHandlingRate: 3,
+      gaRate: 14,
+      feeRate: 10,
+      valueAddedGA: false,
+      escalationRate: 3,
+    },
+    {
+      // SAIC — index 2
+      companyName: "SAIC",
+      companyType: "public",
+      engLocation: "Reston VA",
+      prodLocation: "San Diego CA",
+      engGeoOffset: 0,
+      prodGeoOffset: 0,
+      fringeInOH: true,
+      engOHRate: 92,
+      mfgOHRate: 82,
+      materialHandlingRate: 4,
+      subkHandlingRate: 2,
+      gaRate: 13,
+      feeRate: 10,
+      valueAddedGA: false,
+      escalationRate: 3,
+    },
+    {
+      // Peraton Inc. — index 3; uses Value-Added G&A (key differentiator)
+      companyName: "Peraton Inc.",
+      companyType: "public",
+      engLocation: "Herndon VA",
+      prodLocation: "Various",
+      engGeoOffset: 0,
+      prodGeoOffset: 0,
+      fringeInOH: true,
+      engOHRate: 98,
+      mfgOHRate: 88,
+      materialHandlingRate: 5,
+      subkHandlingRate: 3,
+      gaRate: 15,
+      feeRate: 9,
+      valueAddedGA: true,
+      escalationRate: 3,
+    },
+  ];
+
+  // OurCo profile (competitorId=null — upsert by contractId match)
+  const ourCoProfile = rateProfileData[0];
+  const existingOurCo = await prisma.competitorRateProfile.findFirst({
+    where: { competitorId: null, contractId: contract.id },
+  });
+  if (existingOurCo) {
+    await prisma.competitorRateProfile.update({
+      where: { id: existingOurCo.id },
+      data: { contractId: contract.id, ...ourCoProfile },
+    });
+  } else {
+    await prisma.competitorRateProfile.create({
+      data: { contractId: contract.id, ...ourCoProfile },
+    });
+  }
+
+  // Competitor profiles (competitorId set from seeded competitors array)
+  let rateProfileCount = 1; // OurCo already counted
+  for (let i = 0; i < competitors.length; i++) {
+    const comp = competitors[i];
+    const profileData = rateProfileData[i + 1]; // offset by 1 (OurCo is index 0)
+    if (!profileData) continue;
+    await prisma.competitorRateProfile.upsert({
+      where: { competitorId: comp.id },
+      update: { contractId: contract.id, ...profileData },
+      create: { competitorId: comp.id, contractId: contract.id, ...profileData },
+    });
+    rateProfileCount++;
+  }
+  console.log(`  ✓ ${rateProfileCount} competitor rate profiles`);
+
   // ── Scenarios ─────────────────────────────────────────────────────────────
   const scenarioData = [
     {
@@ -484,12 +611,65 @@ async function main() {
     ),
   ];
 
+  // ── Rate assumptions per competitor (stored in CLIN 0001 base-case breakdown) ─
+  // These populate the Rate Model form when a competitor is selected.
+  const competitorRateAssumptions = [
+    { // Leidos
+      companyName: 'Leidos Inc.', companyType: 'public', comparablePublicCompany: '',
+      engLocation: 'Washington DC Metro', engGeoOffset: '28.00',
+      prodLocation: 'Hampton Roads', prodGeoOffset: '8.00',
+      fringeIncludedInOH: false, fringeRate: '32.00',
+      engOHRate: '28.00', mfgOHRate: '24.00',
+      materialHandlingRate: '5.00', subKHandlingRate: '3.00',
+      gaRate: '12.00', feeRate: '8.00', escalationRate: '3.00',
+    },
+    { // Booz Allen Hamilton
+      companyName: 'Booz Allen Hamilton', companyType: 'public', comparablePublicCompany: '',
+      engLocation: 'Washington DC Metro', engGeoOffset: '28.00',
+      prodLocation: 'Washington DC Metro', prodGeoOffset: '28.00',
+      fringeIncludedInOH: true, fringeRate: '',
+      engOHRate: '35.00', mfgOHRate: '30.00',
+      materialHandlingRate: '6.00', subKHandlingRate: '4.00',
+      gaRate: '14.00', feeRate: '10.00', escalationRate: '3.00',
+    },
+    { // SAIC
+      companyName: 'SAIC (Science Applications International Corporation)', companyType: 'public', comparablePublicCompany: '',
+      engLocation: 'National Average', engGeoOffset: '0.00',
+      prodLocation: 'National Average', prodGeoOffset: '0.00',
+      fringeIncludedInOH: false, fringeRate: '30.00',
+      engOHRate: '25.00', mfgOHRate: '20.00',
+      materialHandlingRate: '4.50', subKHandlingRate: '3.00',
+      gaRate: '11.00', feeRate: '7.00', escalationRate: '3.00',
+    },
+    { // Peraton
+      companyName: 'Peraton Inc.', companyType: 'public', comparablePublicCompany: '',
+      engLocation: 'San Antonio', engGeoOffset: '-5.00',
+      prodLocation: 'San Antonio', prodGeoOffset: '-5.00',
+      fringeIncludedInOH: false, fringeRate: '28.00',
+      engOHRate: '22.00', mfgOHRate: '18.00',
+      materialHandlingRate: '4.00', subKHandlingRate: '2.50',
+      gaRate: '10.00', feeRate: '6.00', escalationRate: '3.00',
+    },
+  ];
+
+  // Map competitorId → rateAssumption for quick lookup
+  const raByCompetitor = new Map(
+    competitors.map((c, i) => [c.id, competitorRateAssumptions[i]])
+  );
+
   const clinMap = Object.fromEntries(clins.map((c) => [c.clinNumber, c]));
 
   const tepResults = [];
   for (const tep of tepData) {
     const { clinNumber, scenarioId, ...rest } = tep;
     const clin = clinMap[clinNumber];
+
+    // Attach rateAssumption to base-case CLIN 0001 for each named competitor
+    const rateAssumption =
+      scenarioId === baseCase.id && clinNumber === '0001' && rest.competitorId != null
+        ? raByCompetitor.get(rest.competitorId) ?? undefined
+        : undefined;
+
     const record = await prisma.tepResult.create({
       data: {
         scenarioId,
@@ -501,6 +681,7 @@ async function main() {
           laborCost: rest.totalPrice * 0.76,
           odcs:       rest.totalPrice * 0.10,
           fee:        rest.totalPrice * 0.09,
+          ...(rateAssumption ? { rateAssumption } : {}),
         },
         ...rest,
       },
