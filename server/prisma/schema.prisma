@@ -1,4 +1,4 @@
-// Prisma schema for PTW (Price to Win) application
+// Prisma schema for PTW (Price to Win) application v2.0
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
@@ -7,6 +7,34 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum ClinType {
+  LABOR
+  PRODUCTION
+  ODC
+  NSP
+}
+
+enum ContractType {
+  FFP
+  CPFF
+  CPIF
+  FPIF
+  COST
+  TM
+}
+
+enum CostBasis {
+  OFFEROR_PROPOSED
+  GOVT_ESTIMATE
+}
+
+enum CompanyType {
+  PUBLIC
+  PRIVATE
 }
 
 // ─── Contract ────────────────────────────────────────────────────────────────
@@ -22,34 +50,47 @@ model Contract {
   popStart         DateTime?    // Period of Performance start
   popEnd           DateTime?    // Period of Performance end
   status           String       @default("OPEN") // OPEN | AWARDED | CANCELLED
+  baseYears        Int
+  optionYears      Int
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
   clins            Clin[]
   scenarios        Scenario[]
   competitors      Competitor[]
-  rateProfiles     CompetitorRateProfile[]
 }
 
 // ─── Clin ─────────────────────────────────────────────────────────────────────
 // Contract Line Item Number — a discrete deliverable/task on the contract
 model Clin {
-  id          Int         @id @default(autoincrement())
-  contractId  Int
-  clinNumber  String      // e.g. "0001", "0002", "1001"
-  description String
-  clinType    String      // FFP | T&M | CPFF | CPAF
-  quantity    Float
-  unit        String      // e.g. "LOT", "HOUR", "MONTH"
-  isOption    Boolean     @default(false)
-  optionYear  Int?        // 0 = base, 1 = OY1, 2 = OY2, etc.
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id                  Int      @id @default(autoincrement())
+  contractId          Int
+  clinNumber          String
+  description         String
+  clinType            ClinType
+  contractType        ContractType
+  optionYear          Int      @default(0)
+  blockNumber         Int      @default(1)
+  sampleTaskRef       String?
+  govtHourCeiling     Float?
+  totalHours          Float?
+  primeSubkMix        Float    @default(1.0)
+  quantity            Float?
+  unitOfMeasure       String?
+  isStepladder        Boolean  @default(false)
+  govtEstimate        Float?
+  govtProvidedODCs    Float?
+  isSeparatelyPriced  Boolean  @default(true)
+  feeAllowed          Boolean  @default(true)
+  feeOnODCs           Boolean  @default(false)
+  nteAmount           Float?
+  realismFactorPct    Float?
+  costBasis           CostBasis @default(OFFEROR_PROPOSED)
+  isInTEP             Boolean   @default(true)
 
-  contract    Contract    @relation(fields: [contractId], references: [id])
-  tepResults  TepResult[]
-
-  @@unique([contractId, clinNumber])
+  contract            Contract  @relation(fields: [contractId], references: [id])
+  tepResults          TepResult[]
+  stepladderBreaks    StepladderBreak[]
 }
 
 // ─── Scenario ─────────────────────────────────────────────────────────────────
@@ -81,6 +122,8 @@ model Competitor {
   strengths         String?
   weaknesses        String?
   likelyBidPrice    Float?      // Analyst's estimated total bid price
+  companyType       CompanyType @default(PUBLIC)
+  isOurCompany      Boolean     @default(false)
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 
@@ -114,51 +157,76 @@ model RateAssumption {
 // ─── TepResult ────────────────────────────────────────────────────────────────
 // Total Evaluated Price result for a competitor on a specific CLIN within a scenario
 model TepResult {
-  id             Int         @id @default(autoincrement())
-  scenarioId     Int
-  clinId         Int
-  competitorId   Int?        // null = own company / incumbent estimate
-  totalPrice     Float       // proposed / estimated price for this CLIN
-  evaluatedPrice Float?      // government-adjusted evaluated price
-  technicalScore Float?      // technical evaluation score (0–100)
-  notes          String?
-  breakdown      Json?       // detailed cost breakdown as JSON
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  id                Int         @id @default(autoincrement())
+  scenarioId        Int
+  clinId            Int
+  competitorId      Int?
+  proposedCost      Float       @default(0)
+  proposedFee       Float       @default(0)
+  proposedTep       Float       @default(0)
+  evaluatedTep      Float       @default(0)
+  primeHours        Float?
+  subkHours         Float?
+  primeLaborCost    Float?
+  subkLaborCost     Float?
+  totalLaborCost    Float?
+  indirectCost      Float?
+  odcCost           Float?
+  materialCost      Float?
+  gaAmount          Float?
+  feeAmount         Float?
+  realismApplied    Boolean     @default(false)
+  isNSP             Boolean     @default(false)
+  notes             String?
 
-  scenario       Scenario    @relation(fields: [scenarioId], references: [id])
-  clin           Clin        @relation(fields: [clinId], references: [id])
-  competitor     Competitor? @relation(fields: [competitorId], references: [id])
+  scenario          Scenario    @relation(fields: [scenarioId], references: [id])
+  clin              Clin        @relation(fields: [clinId], references: [id])
+  competitor        Competitor? @relation(fields: [competitorId], references: [id])
 }
 
 // ─── CompetitorRateProfile ────────────────────────────────────────────────────
 // Company-level overhead/burden rate assumptions for a competitor (or own company)
 model CompetitorRateProfile {
-  id                   Int         @id @default(autoincrement())
-  competitorId         Int?        @unique  // null = own company (OurCo)
-  contractId           Int
-  companyName          String
-  companyType          String?     @default("public")
-  engLocation          String?
-  prodLocation         String?
-  engGeoOffset         Float?      // percentage (e.g. 5.0 = 5%)
-  prodGeoOffset        Float?
-  fringeInOH           Boolean     @default(true)
-  fringeRate           Float?
-  engOHRate            Float?
-  mfgOHRate            Float?
-  materialHandlingRate Float?
-  subkHandlingRate     Float?
-  gaRate               Float?
-  feeRate              Float?
-  valueAddedGA         Boolean     @default(false)
-  escalationRate       Float?
-  notes                String?
-  createdAt            DateTime    @default(now())
-  updatedAt            DateTime    @updatedAt
+  id                    Int         @id @default(autoincrement())
+  competitorId          Int         @unique
+  contractId            Int
+  primeCompositeRate    Float?
+  subkCompositeRate     Float?
+  primeSubkMix          Float?      @default(1.0)
+  engOHRate             Float?
+  mfgOHRate             Float?
+  materialHandlingRate  Float?
+  subkHandlingRate      Float?
+  gaRate                Float?
+  valueAddedGA          Boolean     @default(false)
+  feeRate               Float?
+  cpifTargetFee         Float?
+  cpifMinFee            Float?
+  cpifMaxFee            Float?
+  fpifTargetFee         Float?
+  fpifCeilingPrice      Float?
+  engLocation           String?
+  prodLocation          String?
+  engGeoOffset          Float?
+  prodGeoOffset         Float?
+  fringeInOH            Boolean     @default(true)
+  escalationRate        Float?
+  notes                 String?
 
-  competitor           Competitor? @relation(fields: [competitorId], references: [id])
-  contract             Contract    @relation(fields: [contractId], references: [id])
+  competitor            Competitor  @relation(fields: [competitorId], references: [id])
+}
+
+// ─── StepladderBreak ──────────────────────────────────────────────────────────
+// Price break points for stepladder-priced CLINs
+model StepladderBreak {
+  id              Int     @id @default(autoincrement())
+  clinId          Int
+  breakMin        Float
+  breakMax        Float?
+  unitPrice       Float
+  mlqProbability  Float
+
+  clin            Clin    @relation(fields: [clinId], references: [id])
 }
 
 // ─── GeographicIndex ──────────────────────────────────────────────────────────
